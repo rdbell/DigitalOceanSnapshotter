@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
@@ -36,19 +37,19 @@ func main() {
 
 	DOToken, present := os.LookupEnv("DO_TOKEN")
 
-	if present == false {
+	if !present {
 		log.Fatal("Missing enviroment variable \"DO_TOKEN\"")
 	}
 
 	volumesEnv, present := os.LookupEnv("DO_VOLUMES")
 
-	if present == false {
+	if !present {
 		log.Fatal("Missing enviroment variable \"DO_VOLUMES\"")
 	}
 
 	snapshotCountEnv, present := os.LookupEnv("DO_SNAPSHOT_COUNT")
 
-	if present == false {
+	if !present {
 		log.Fatal("Missing enviroment variable \"DO_SNAPSHOT_COUNT\"")
 	}
 
@@ -65,7 +66,7 @@ func main() {
 	if slackEnv != "" {
 		channelID, present := os.LookupEnv("SLACK_CHANNEL_ID")
 
-		if present == false {
+		if !present {
 			log.Fatal("Missing enviroment variable \"SLACK_CHANNEL_ID\"")
 		}
 
@@ -99,9 +100,14 @@ func main() {
 			handleError(ctx, err, true)
 		}
 
-		log.Info(fmt.Sprintf("Created Snapshot with Id %s from volume %s", snapshot.ID, volume.Name))
+		log.Infof("Created Snapshot with Id %s from volume %s", snapshot.ID, volume.Name)
 
-		snapshots, _, err := ctx.DoContext.ListSnapshots(volume.ID, nil)
+		snapshots, _, err := ctx.DoContext.ListSnapshots(volume.ID, &godo.ListOptions{
+			PerPage: 100,
+		})
+		if err != nil {
+			handleError(ctx, err, true)
+		}
 
 		snapshotLength := len(snapshots)
 
@@ -130,7 +136,7 @@ func main() {
 					return
 				}
 
-				log.Info(fmt.Sprintf("Deleted Snapshot with Id %s", snapshotToDeleteID))
+				log.Infof("Deleted Snapshot with Id %s", snapshotToDeleteID)
 			}
 		}
 	}
@@ -141,6 +147,13 @@ func main() {
 			handleError(ctx, err, false)
 		}
 	}
+
+	if successEnv, present := os.LookupEnv("SUCCESS_COMMAND"); present {
+		err = exec.Command("bash", "-c", successEnv).Run()
+		if err != nil {
+			handleError(ctx, err, true)
+		}
+	}
 }
 
 func handleError(ctx snapshotterContext, err error, fatal bool) {
@@ -149,7 +162,7 @@ func handleError(ctx snapshotterContext, err error, fatal bool) {
 	if ctx.SlackContext != nil {
 		err = ctx.SlackContext.SendEvent(errString, log.ErrorLevel)
 		if err != nil {
-			log.Error(fmt.Sprintf("Error while trying to send error to Slack: %s", err.Error()))
+			log.Errorf("Error while trying to send error to Slack: %s", err.Error())
 		}
 	}
 
